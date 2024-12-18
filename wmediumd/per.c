@@ -319,10 +319,10 @@ int read_per_file(struct wmediumd *ctx, const char *file_name)
 	int signal;
 	size_t i;
 	float *temp;
-	int size = strlen(file_name) + 2;
-	char *filename = malloc(size);
 	const char *files[] = {"ax"};
-
+	int size = strlen(file_name) + strlen(files[0]) + 1;
+	char *filename = malloc(size);
+	
 	strcpy (filename, file_name);
     strcat (filename, files[0]);
 

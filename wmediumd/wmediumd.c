@@ -676,7 +676,14 @@ void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 					frame->sender->index, frame->duration,
 					frame->signal))
 					continue;
+				// use the value that is last in list.
 				rate_idx = frame->tx_rates[0].idx;
+				for(int i = 0; i < frame->tx_rates_count; i++) {
+					if(frame->tx_rates[i].idx == -1) {
+						break;
+					}
+					rate_idx = frame->tx_rates[i].idx;
+				}
 				send_cloned_frame_msg(ctx, station,
 						      frame->data,
 						      frame->data_len,

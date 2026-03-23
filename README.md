@@ -160,6 +160,42 @@ model :
 };
 ```
 
+## Nakagami-m model
+
+The Nakagami model simulates the rapid, chaotic fluctuations (fading)
+caused by the signal bouncing off the ground or obstacles.
+This code was developed using the following references:
+* Nakagami, M. (1960). "The m-distribution—A general formula of intensity distribution of rapid fading". This is the foundational paper defining the distribution.
+* Marsaglia, G., & Tsang, W. W. (2000). "A Simple Method for Generating Gamma Variables". ACM Transactions on Mathematical Software. (Method used for the C implementation).
+
+```
+ifaces : {...};
+model :
+{
+    type = "path_loss";
+    positions = (
+        (-10.0,  0.0, 0.0),  /* Node 1 - West */
+        (  0.0,  5.0, 0.0),  /* Node 2 - North */
+        (  0.0, -5.0, 0.0),  /* Node 3 - South */
+        ( 10.0,  0.0, 0.0)   /* Node 4 - East */
+    );
+
+    /* Mobility: meters per MOVE_INTERVAL (1s) */
+    directions = (
+        (-2.0, 0.0),  /* Node 1 flies West at 2m/s */
+        ( 0.0, 0.0),  /* Node 2 static */
+        ( 0.0, 0.0),  /* Node 3 static */
+        ( 2.0, 0.0)   /* Node 4 flies East at 2m/s */
+    );
+
+    tx_powers = (20.0, 20.0, 20.0, 20.0);
+    model_name = "nakagami";
+    m = 2.5;                   /* Moderate LoS */
+    path_loss_exp = 2.5;       
+    xg = 0.0;                  
+};
+```
+
 ## Gotchas
 
 ### Allowable MAC addresses

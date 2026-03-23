@@ -187,6 +187,7 @@ struct wmediumd {
 	int per_matrix_signal_min;
 	int fading_coefficient;
 	int noise_threshold;
+    struct nakagami_model_param *nakagami_param;
 
 	struct nl_cb *cb;
 	int family_id;
@@ -233,6 +234,10 @@ struct itu_model_param {
 	int nFLOORS;
 	int lF;
 	int pL;
+};
+
+struct nakagami_model_param {
+    double m;
 };
 
 struct log_normal_shadowing_model_param {

@@ -334,7 +334,7 @@ static void recalc_path_loss(struct wmediumd *ctx)
             signal = gains - path_loss - ctx->noise_threshold;
             if (ctx->nakagami_param != NULL) {
                 double gain = get_nakagami_gain_db(ctx->nakagami_param->m);
-                signal += (int)gain;
+                signal += (int)round(gain);
             }
             ctx->snr_matrix[ctx->num_stas * start + end] = signal;
             ctx->snr_matrix[ctx->num_stas * end + start] = signal;

@@ -180,19 +180,19 @@ model :
         ( 10.0,  0.0, 0.0)   /* Node 4 - East */
     );
 
-    /* Mobility: meters per MOVE_INTERVAL (1s) */
+    /* Mobility: 1 m/s (Direction values are in meters per 3s update interval) */
     directions = (
-        (-2.0, 0.0),  /* Node 1 flies West at 2m/s */
-        ( 0.0, 0.0),  /* Node 2 static */
-        ( 0.0, 0.0),  /* Node 3 static */
-        ( 2.0, 0.0)   /* Node 4 flies East at 2m/s */
+        (-3.0, 0.0),  /* Node 1 flies West at 1 m/s */
+        ( 0.0, 0.0),  /* Node 2 static              */
+        ( 0.0, 0.0),  /* Node 3 static              */
+        ( 3.0, 0.0)   /* Node 4 flies East at 1 m/s */
     );
 
     tx_powers = (20.0, 20.0, 20.0, 20.0);
     model_name = "nakagami";
-    m = 2.5;                   /* Moderate LoS */
-    path_loss_exp = 2.5;       
-    xg = 0.0;                  
+    m = 1.5;             /* Partial LoS (Typical UAV fading) Deep-fade probability ~15% */
+    path_loss_exp = 4.0; /* Dense urban; SNR ~39 dB (t=0s) -> ~17 dB (t=30s)            */
+    xg = 0.0;
 };
 ```
 

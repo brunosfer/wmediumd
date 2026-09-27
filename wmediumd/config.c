@@ -85,9 +85,34 @@ int use_fixed_random_value(struct wmediumd *ctx)
 #define FREQ_1CH (2.412e9)		// [Hz]
 #define SPEED_LIGHT (2.99792458e8)	// [meter/sec]
 
+/* Thread-local erand48 state: signal calculations run concurrently in the
+ * wserver threads and in the main loop, so a shared RNG state would race. */
+static __thread unsigned short rng_xsubi[3];
+static __thread bool rng_seeded;
+
+static double next_uniform(void)
+{
+	if (!rng_seeded) {
+		struct timespec ts;
+		uint64_t seed;
+
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		seed = ((uint64_t)ts.tv_sec << 32) ^ (uint64_t)ts.tv_nsec ^
+		       (uint64_t)(uintptr_t)&rng_xsubi;
+		rng_xsubi[0] = (unsigned short)(seed & 0xFFFF);
+		rng_xsubi[1] = (unsigned short)((seed >> 16) & 0xFFFF);
+		rng_xsubi[2] = (unsigned short)((seed >> 32) & 0xFFFF);
+		if (rng_xsubi[0] == 0 && rng_xsubi[1] == 0 && rng_xsubi[2] == 0)
+			rng_xsubi[0] = 1;
+		rng_seeded = true;
+	}
+
+	return erand48(rng_xsubi);
+}
+
 static double _gamma_sample(double shape, double scale) {
     if (shape < 1.0)
-        return _gamma_sample(shape + 1.0, scale) * pow(drand48(), 1.0 / shape);
+        return _gamma_sample(shape + 1.0, scale) * pow(next_uniform(), 1.0 / shape);
 
     double d = shape - 1.0 / 3.0;
     double c = 1.0 / sqrt(9.0 * d);
@@ -95,14 +120,14 @@ static double _gamma_sample(double shape, double scale) {
 
     while (1) {
         do {
-            r = drand48();
+            r = next_uniform();
             if (r == 0.0) r = 1e-10;
-            x = cos(2 * M_PI * drand48()) * sqrt(-2 * log(r));
+            x = cos(2 * M_PI * next_uniform()) * sqrt(-2 * log(r));
             v = 1.0 + c * x;
         } while (v <= 0);
 
         v = v * v * v;
-        u = drand48();
+        u = next_uniform();
         if (u == 0.0) u = 1e-10;
         if (u < 1.0 - 0.0331 * (x * x) * (x * x)) return d * v * scale;
         if (log(u) < 0.5 * x * x + d * (1.0 - v + log(v))) return d * v * scale;
@@ -192,6 +217,22 @@ static int calc_path_loss_log_distance(void *model_param,
 	PL = PL0 + 10.0 * param->path_loss_exponent * log10(d) + param->Xg;
 	return PL;
 }
+
+/*
+ * Calculate path loss with the Nakagami-m fading model: log-distance path
+ * loss plus a freshly sampled Nakagami power gain (in dB). The gain is drawn
+ * on every signal computation, so it also varies on the dynamic position,
+ * power and gain updates pushed through the wserver control socket.
+ */
+static int calc_path_loss_nakagami(void *model_param,
+			  struct station *dst, struct station *src)
+{
+	struct nakagami_model_param *param = model_param;
+	int pl = calc_path_loss_log_distance(&param->ld, dst, src);
+
+	return pl - (int)round(get_nakagami_gain_db(param->m));
+}
+
 /*
  * Calculate path loss based on a itu model
  *
@@ -332,10 +373,6 @@ static void recalc_path_loss(struct wmediumd *ctx)
                 ctx->sta_array[end], ctx->sta_array[start]);
             gains = txpower + ctx->sta_array[start]->gain + ctx->sta_array[end]->gain;
             signal = gains - path_loss - ctx->noise_threshold;
-            if (ctx->nakagami_param != NULL) {
-                double gain = get_nakagami_gain_db(ctx->nakagami_param->m);
-                signal += (int)round(gain);
-            }
             ctx->snr_matrix[ctx->num_stas * start + end] = signal;
             ctx->snr_matrix[ctx->num_stas * end + start] = signal;
 		}
@@ -541,10 +578,9 @@ static int parse_path_loss(struct wmediumd *ctx, config_t *cf)
     }
     else if (strncmp(path_loss_model_name, "nakagami", sizeof("nakagami")) == 0) {
         struct nakagami_model_param *param;
-        struct log_distance_model_param *ld_param;
-        
-        ctx->calc_path_loss = calc_path_loss_log_distance; 
-        
+
+        ctx->calc_path_loss = calc_path_loss_nakagami;
+
         param = malloc(sizeof(*param));
         if (!param) {
             w_flogf(ctx, LOG_ERR, stderr, "Out of memory(nakagami_param)\n");
@@ -555,22 +591,14 @@ static int parse_path_loss(struct wmediumd *ctx, config_t *cf)
             w_flogf(ctx, LOG_ERR, stderr, "Nakagami m parameter not found, defaulting to 1.0\n");
             param->m = 1.0;
         }
+        param->ld.path_loss_exponent = 2.0;
+        param->ld.Xg = 0.0;
+
+        config_setting_lookup_float(model, "path_loss_exp", &param->ld.path_loss_exponent);
+        config_setting_lookup_float(model, "xg", &param->ld.Xg);
+
         ctx->nakagami_param = param;
-        
-        ld_param = malloc(sizeof(*ld_param));
-        if (!ld_param) {
-            free(param); 
-            ctx->nakagami_param = NULL;
-            w_flogf(ctx, LOG_ERR, stderr, "Out of memory(path_loss_param)\n");
-            return -ENOMEM;
-        }
-
-        ld_param->path_loss_exponent = 2.0; 
-        ld_param->Xg = 0.0;
-
-        config_setting_lookup_float(model, "path_loss_exp", &ld_param->path_loss_exponent);
-        config_setting_lookup_float(model, "xg", &ld_param->Xg);
-        ctx->path_loss_param = ld_param;
+        ctx->path_loss_param = param;
     }
     else {
         w_flogf(ctx, LOG_ERR, stderr, "No path loss model found\n");

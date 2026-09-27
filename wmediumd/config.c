@@ -706,6 +706,8 @@ int load_config(struct wmediumd *ctx, const char *file, const char *per_file, bo
 		return 0;
 	}
 	ctx->station_err_matrix = NULL;
+	ctx->snr_matrix = NULL;
+	ctx->error_prob_matrix = NULL;
 
 	/*initialize the config file*/
 	cf = &cfg;

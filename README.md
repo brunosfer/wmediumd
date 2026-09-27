@@ -164,6 +164,10 @@ model :
 
 The Nakagami model simulates the rapid, chaotic fluctuations (fading)
 caused by the signal bouncing off the ground or obstacles.
+The fading gain is resampled on every signal computation: at startup and on
+each position, TX power or antenna gain update received through the control
+socket, so fading also evolves when mobility is driven by external tools
+(for example Mininet-WiFi) rather than by wmediumd's internal movement.
 This code was developed using the following references:
 * Nakagami, M. (1960). "The m-distribution—A general formula of intensity distribution of rapid fading". This is the foundational paper defining the distribution.
 * Marsaglia, G., & Tsang, W. W. (2000). "A Simple Method for Generating Gamma Variables". ACM Transactions on Mathematical Software. (Method used for the C implementation).

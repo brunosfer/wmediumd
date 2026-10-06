@@ -266,6 +266,7 @@ struct itu_model_param {
 
 struct nakagami_model_param {
     double m;
+    struct log_distance_model_param ld;
 };
 
 struct log_normal_shadowing_model_param {

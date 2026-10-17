@@ -164,10 +164,34 @@ model :
 
 The Nakagami model simulates the rapid, chaotic fluctuations (fading)
 caused by the signal bouncing off the ground or obstacles.
-The fading gain is resampled on every signal computation: at startup and on
-each position, TX power or antenna gain update received through the control
-socket, so fading also evolves when mobility is driven by external tools
-(for example Mininet-WiFi) rather than by wmediumd's internal movement.
+
+**When the gain is drawn.** The Nakagami power gain is drawn for every frame:
+once per unicast frame (its retries share it, since they fall within the
+channel coherence time) and once per receiver of a multicast frame. The
+stored link SNR holds only the mean log-distance path loss, so links also fade
+while nodes hover and no position updates are sent. If `fading_coefficient`
+is set as well, its Gaussian term is added to the Nakagami gain.
+
+**Parameters.**
+
+| Parameter | Required | Accepted values | Default |
+|---|---|---|---|
+| `m` | yes | integer or decimal, at least 0.5 | none: wmediumd refuses to start without it |
+| `path_loss_exp` | no | integer or decimal | 2.0 |
+| `xg` | no | integer or decimal | 0.0 |
+
+**Test.** `tests/test_nakagami_mobility.sh` checks the configuration parsing
+(integer `m` accepted, `m < 0.5` and missing `m` refused) and the fading per
+frame on the broadcast frames from Node 1 to Node 4 while the two fly apart:
+frames received within 0.1 s share the same path loss, so their signal
+difference must follow the difference of two Nakagami gains. It plays the
+results live next to the topology and throughput and saves them as
+`nakagami_test.png` and `nakagami_test.gif`:
+
+```
+make && cd tests && sudo DISPLAY=$DISPLAY ./test_nakagami_mobility.sh
+```
+
 This code was developed using the following references:
 * Nakagami, M. (1960). "The m-distribution—A general formula of intensity distribution of rapid fading". This is the foundational paper defining the distribution.
 * Marsaglia, G., & Tsang, W. W. (2000). "A Simple Method for Generating Gamma Variables". ACM Transactions on Mathematical Software. (Method used for the C implementation).

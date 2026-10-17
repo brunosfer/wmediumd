@@ -3,3 +3,12 @@ wmediumd/wmediumd
 tests/client_snr
 tests/client_errprob
 tests/client_specprob
+# outputs of tests/test_nakagami_mobility.sh
+tests/nakagami_mobility.cfg
+tests/wmediumd.log
+tests/iperf_client.log
+tests/iperf_server.log
+tests/ping_results.log
+tests/fading_frames.log
+tests/nakagami_test.png
+tests/nakagami_test.gif

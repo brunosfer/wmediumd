@@ -219,18 +219,32 @@ static int calc_path_loss_log_distance(void *model_param,
 }
 
 /*
- * Calculate path loss with the Nakagami-m fading model: log-distance path
- * loss plus a freshly sampled Nakagami power gain (in dB). The gain is drawn
- * on every signal computation, so it also varies on the dynamic position,
- * power and gain updates pushed through the wserver control socket.
+ * Path loss of the Nakagami-m model: the mean log-distance path loss only.
+ * The Nakagami power gain is not part of the stored link SNR; it is drawn
+ * for every frame by _get_nakagami_fading_signal(), like fading_coefficient.
  */
 static int calc_path_loss_nakagami(void *model_param,
 			  struct station *dst, struct station *src)
 {
 	struct nakagami_model_param *param = model_param;
-	int pl = calc_path_loss_log_distance(&param->ld, dst, src);
 
-	return pl - (int)round(get_nakagami_gain_db(param->m));
+	return calc_path_loss_log_distance(&param->ld, dst, src);
+}
+
+static double pseudo_normal_distribution(void);
+
+/*
+ * Per-frame fading of the Nakagami-m model, in dB: a fresh Nakagami power
+ * gain for every unicast frame and for every receiver of a multicast frame,
+ * plus the optional Gaussian fading_coefficient term.
+ */
+static int _get_nakagami_fading_signal(struct wmediumd *ctx)
+{
+	int fading = (int)round(get_nakagami_gain_db(ctx->nakagami_param->m));
+
+	if (ctx->fading_coefficient > 0)
+		fading += ctx->fading_coefficient * pseudo_normal_distribution();
+	return fading;
 }
 
 /*
@@ -400,6 +414,24 @@ static void move_stations_to_direction(struct wmediumd *ctx)
 
 static void move_stations_donothing(struct wmediumd *ctx)
 {
+}
+
+/*
+ * Look up a number that may be written as an integer ("m = 3;") or as a
+ * float ("m = 3.0;"); libconfig does not convert between the two types.
+ */
+static int lookup_number(const config_setting_t *setting, const char *name,
+			 double *value)
+{
+	int ivalue;
+
+	if (config_setting_lookup_float(setting, name, value) == CONFIG_TRUE)
+		return CONFIG_TRUE;
+	if (config_setting_lookup_int(setting, name, &ivalue) == CONFIG_TRUE) {
+		*value = ivalue;
+		return CONFIG_TRUE;
+	}
+	return CONFIG_FALSE;
 }
 
 static int parse_path_loss(struct wmediumd *ctx, config_t *cf)
@@ -587,18 +619,27 @@ static int parse_path_loss(struct wmediumd *ctx, config_t *cf)
             return -ENOMEM;
         }
 
-        if (config_setting_lookup_float(model, "m", &param->m) != CONFIG_TRUE) {
-            w_flogf(ctx, LOG_ERR, stderr, "Nakagami m parameter not found, defaulting to 1.0\n");
-            param->m = 1.0;
+        if (lookup_number(model, "m", &param->m) != CONFIG_TRUE) {
+            w_flogf(ctx, LOG_ERR, stderr,
+                "Nakagami m not found or not a number (e.g. m = 1.5;)\n");
+            free(param);
+            return -EINVAL;
+        }
+        if (param->m < 0.5) {
+            w_flogf(ctx, LOG_ERR, stderr,
+                "Nakagami m must be at least 0.5, got %g\n", param->m);
+            free(param);
+            return -EINVAL;
         }
         param->ld.path_loss_exponent = 2.0;
         param->ld.Xg = 0.0;
 
-        config_setting_lookup_float(model, "path_loss_exp", &param->ld.path_loss_exponent);
-        config_setting_lookup_float(model, "xg", &param->ld.Xg);
+        lookup_number(model, "path_loss_exp", &param->ld.path_loss_exponent);
+        lookup_number(model, "xg", &param->ld.Xg);
 
         ctx->nakagami_param = param;
         ctx->path_loss_param = param;
+        ctx->get_fading_signal = _get_nakagami_fading_signal;
     }
     else {
         w_flogf(ctx, LOG_ERR, stderr, "No path loss model found\n");

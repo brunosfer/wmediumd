@@ -33,6 +33,7 @@
 #include <event.h>
 #include <math.h>
 #include <sys/timerfd.h>
+#include <sys/socket.h>
 #include <errno.h>
 #include <limits.h>
 #include <unistd.h>
@@ -1302,6 +1303,29 @@ static void reregister_cb(int fd, short what, void *data)
 }
 
 /*
+ * Netlink receive buffer. hwsim sends each frame in its own message of up to
+ * a page, so libnl's default (64 KiB once doubled by the kernel) overflows
+ * while wmediumd waits for the CPU, and hwsim drops the frames (d_tx_failed).
+ * The kernel doubles this value too (16 MiB); memory is used only while
+ * messages wait to be read.
+ */
+#define NETLINK_RCVBUF_SIZE (8 * 1024 * 1024)
+
+static void set_netlink_rcvbuf(struct wmediumd *ctx, struct nl_sock *sock)
+{
+	int fd = nl_socket_get_fd(sock);
+	int size = NETLINK_RCVBUF_SIZE;
+	socklen_t len = sizeof(size);
+
+	/* SO_RCVBUFFORCE (CAP_NET_ADMIN) is not capped by net.core.rmem_max */
+	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUFFORCE, &size, sizeof(size)) < 0)
+		nl_socket_set_buffer_size(sock, NETLINK_RCVBUF_SIZE, 0);
+
+	if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, &len) == 0)
+		w_logf(ctx, LOG_INFO, "netlink receive buffer: %d bytes\n", size);
+}
+
+/*
  * Setup netlink socket and callbacks.
  */
 static int init_netlink(struct wmediumd *ctx)
@@ -1334,6 +1358,14 @@ static int init_netlink(struct wmediumd *ctx)
 		w_logf(ctx, LOG_ERR, "Family MAC80211_HWSIM not registered\n");
 		return -1;
 	}
+
+	set_netlink_rcvbuf(ctx, sock);
+
+	/*
+	 * wmediumd never waits for acknowledgements, which would fill the same
+	 * buffer. Errors are still sent by the kernel and reach nl_err_cb.
+	 */
+	nl_socket_disable_auto_ack(sock);
 
 	nl_cb_set(ctx->cb, NL_CB_MSG_IN, NL_CB_CUSTOM, process_messages_cb, ctx);
 	nl_cb_err(ctx->cb, NL_CB_CUSTOM, nl_err_cb, ctx);

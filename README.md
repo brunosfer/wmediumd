@@ -36,6 +36,16 @@ However, please see the next section on some potential pitfalls.
 A complete example using network namespaces is given at the end of
 this document.
 
+To repeat the random draws of a run (frame losses, collisions, fading),
+give wmediumd a seed:
+```
+sudo ./wmediumd/wmediumd -c tests/2node.cfg -S 42
+```
+The same seed gives the same sequence of draws. Which frame meets which draw
+still depends on the order in which frames arrive, which follows the timing
+of the host. Without a seed the fading draws are seeded from the clock. The
+FTM ranging error keeps its own `pmsr_seed`.
+
 # Configuration
 
 Wmediumd supports multiple ways of configuring the wireless medium.

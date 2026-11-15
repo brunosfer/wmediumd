@@ -947,6 +947,46 @@ void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 	free(frame);
 }
 
+/*
+ * Timing statistics (WMEDIUMD_STATS set in the environment): how many frames were delivered later than the medium
+ * scheduled them. Cumulative, one line per second on stdout (the log), so that a run can report whether the
+ * emulator kept its own timing.
+ */
+static bool stats_on;
+static unsigned long st_delivered, st_late1ms, st_late10ms, st_late100ms;
+static long st_late_max_us;
+static struct timespec st_last;
+
+static long stats_us(const struct timespec *a, const struct timespec *b)
+{
+	return (a->tv_sec - b->tv_sec) * 1000000L + (a->tv_nsec - b->tv_nsec) / 1000;
+}
+
+static void stats_late(const struct timespec *now, const struct timespec *expires)
+{
+	long late = stats_us(now, expires);
+
+	st_delivered++;
+	if (late > st_late_max_us)
+		st_late_max_us = late;
+	if (late > 1000)
+		st_late1ms++;
+	if (late > 10000)
+		st_late10ms++;
+	if (late > 100000)
+		st_late100ms++;
+}
+
+static void stats_print(const struct timespec *now)
+{
+	if (st_last.tv_sec && stats_us(now, &st_last) < 1000000)
+		return;
+	st_last = *now;
+	printf("wmd-stats delivered=%lu late_gt1ms=%lu late_gt10ms=%lu late_gt100ms=%lu late_max_us=%ld\n",
+	       st_delivered, st_late1ms, st_late10ms, st_late100ms, st_late_max_us);
+	fflush(stdout);
+}
+
 void deliver_expired_frames_queue(struct wmediumd *ctx,
 				  struct list_head *queue,
 				  struct timespec *now)
@@ -956,6 +996,8 @@ void deliver_expired_frames_queue(struct wmediumd *ctx,
 	list_for_each_entry_safe(frame, tmp, queue, list) {
 		if (timespec_before(&frame->expires, now)) {
 			list_del(&frame->list);
+			if (stats_on)
+				stats_late(now, &frame->expires);
 			deliver_frame(ctx, frame);
 		} else {
 			break;
@@ -972,6 +1014,8 @@ void deliver_expired_frames(struct wmediumd *ctx)
     int sta1_medium_id;
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
+	if (stats_on)
+		stats_print(&now);
 	
 	int rand_start_cnt = rand() % ctx->num_stas;
 	
@@ -1594,6 +1638,8 @@ int main(int argc, char *argv[])
 	INIT_LIST_HEAD(&ctx.stations);
 	if (load_config(&ctx, config_file, per_file, full_dynamic))
 		return EXIT_FAILURE;
+
+	stats_on = getenv("WMEDIUMD_STATS") != NULL;
 
 	/* init libevent */
 	event_init();

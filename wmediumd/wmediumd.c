@@ -129,6 +129,13 @@ static int timespec_sub(struct timespec *a, struct timespec *b,
 	return 0;
 }
 
+/*
+ * The expiry the timer is set to. Every queued frame calls rearm_timer(), and the earliest expiry rarely
+ * changes, so the timer is set only when it does; timer_cb() clears the flag when the timer fires.
+ */
+static bool armed_valid;
+static struct timespec armed_at;
+
 void rearm_timer(struct wmediumd *ctx)
 {
 	struct timespec min_expires;
@@ -158,10 +165,15 @@ void rearm_timer(struct wmediumd *ctx)
 	}
 
 	if (set_min_expires) {
+		if (armed_valid && armed_at.tv_sec == min_expires.tv_sec &&
+		    armed_at.tv_nsec == min_expires.tv_nsec)
+			return;
 		memset(&expires, 0, sizeof(expires));
 		expires.it_value = min_expires;
 		timerfd_settime(ctx->timerfd, TFD_TIMER_ABSTIME, &expires,
 				NULL);
+		armed_at = min_expires;
+		armed_valid = true;
 	}
 }
 
@@ -974,11 +986,13 @@ void deliver_expired_frames(struct wmediumd *ctx)
 			continue;
 		station = list_entry(rand_it, struct station, list);
 		int q_ct[IEEE80211_NUM_ACS] = {};
-		for (i = 0; i < IEEE80211_NUM_ACS; i++) {
-			list_for_each(l, &station->queues[i].frames) {
-				q_ct[i]++;
+		/* the counts are only logged: walking every queue costs more than the delivery under load */
+		if (ctx->log_lvl >= LOG_DEBUG)
+			for (i = 0; i < IEEE80211_NUM_ACS; i++) {
+				list_for_each(l, &station->queues[i].frames) {
+					q_ct[i]++;
+				}
 			}
-		}
 		w_logf(ctx, LOG_DEBUG, "[" TIME_FMT "] Station " MAC_FMT
 					   " BK %d BE %d VI %d VO %d\n",
 			   TIME_ARGS(&now), MAC_ARGS(station->addr),
@@ -1437,6 +1451,7 @@ static void timer_cb(int fd, short what, void *data)
 
 	pthread_rwlock_rdlock(&snr_lock);
 	read(fd, &u, sizeof(u));
+	armed_valid = false;
 	ctx->move_stations(ctx);
 	deliver_expired_frames(ctx);
 	rearm_timer(ctx);

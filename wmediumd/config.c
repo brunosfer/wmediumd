@@ -90,8 +90,60 @@ int use_fixed_random_value(struct wmediumd *ctx)
 static __thread unsigned short rng_xsubi[3];
 static __thread bool rng_seeded;
 
+/* Seed given with -S: every thread then draws from its own stream derived
+ * from it (the main loop from stream 0), instead of from the clock. */
+static bool rng_seed_given;
+static uint64_t rng_seed;
+static unsigned int rng_next_stream;
+
+/* SplitMix64 step: spreads a seed and a stream number over 64 bits */
+static uint64_t splitmix64(uint64_t x)
+{
+	x += 0x9E3779B97F4A7C15ULL;
+	x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+	x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+	return x ^ (x >> 31);
+}
+
+static void seed_thread_stream(void)
+{
+	unsigned int stream = __atomic_fetch_add(&rng_next_stream, 1,
+						 __ATOMIC_RELAXED);
+	uint64_t seed = splitmix64(rng_seed ^ splitmix64(stream));
+
+	rng_xsubi[0] = (unsigned short)(seed & 0xFFFF);
+	rng_xsubi[1] = (unsigned short)((seed >> 16) & 0xFFFF);
+	rng_xsubi[2] = (unsigned short)((seed >> 32) & 0xFFFF);
+	rng_seeded = true;
+}
+
+/* Make every random draw of wmediumd repeatable: the fading streams, and the
+ * drand48 and rand draws for losses, collisions and the delivery order.
+ * The seed is spread with SplitMix64 before it sets the 48 bits of the
+ * drand48 state: srand48() keeps only 32 bits of its argument, and gives
+ * consecutive seeds first draws that differ by one constant step.
+ * Call from the main thread before the configuration is loaded. */
+void set_random_seed(uint64_t seed)
+{
+	uint64_t mixed = splitmix64(seed);
+	unsigned short state[3] = {
+		(unsigned short)(mixed & 0xFFFF),
+		(unsigned short)((mixed >> 16) & 0xFFFF),
+		(unsigned short)((mixed >> 32) & 0xFFFF)
+	};
+
+	rng_seed = seed;
+	rng_seed_given = true;
+	seed48(state);
+	srand((unsigned int)(splitmix64(mixed) >> 32));
+	seed_thread_stream();
+}
+
 static double next_uniform(void)
 {
+	if (!rng_seeded && rng_seed_given)
+		seed_thread_stream();
+
 	if (!rng_seeded) {
 		struct timespec ts;
 		uint64_t seed;

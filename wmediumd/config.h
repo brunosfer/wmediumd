@@ -26,5 +26,6 @@
 
 int load_config(struct wmediumd *ctx, const char *file, const char *per_file, bool full_dynamic);
 int use_fixed_random_value(struct wmediumd *ctx);
+void set_random_seed(uint64_t seed);
 
 #endif /* CONFIG_H_ */

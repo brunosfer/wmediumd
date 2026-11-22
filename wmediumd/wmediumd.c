@@ -1497,7 +1497,7 @@ out:
 void print_help(int exval)
 {
 	printf("wmediumd v%s - a wireless medium simulator\n", VERSION_STR);
-	printf("wmediumd [-h] [-V] [-a AP_ADDR] [-s] [-l LOG_LVL] [-x FILE] -c FILE\n\n");
+	printf("wmediumd [-h] [-V] [-a AP_ADDR] [-s] [-l LOG_LVL] [-x FILE] [-S SEED] -c FILE\n\n");
 
 	printf("  -h              print this help and exit\n");
 	printf("  -V              print version and exit\n\n");
@@ -1516,6 +1516,11 @@ void print_help(int exval)
 	printf("  -a AP_ADDR      Set remote operation mode to associate remotely\n");
 	printf("                  AP_ADDR: IPv4 address or hostname of AP machine\n");
 	printf("                  \"localhost\" if current machine is AP\n");
+	printf("  -S SEED, --seed=SEED\n");
+	printf("                  seed every random draw (losses, collisions, fading)\n");
+	printf("                  with SEED, a number from 0 to 2^64 - 1: the same\n");
+	printf("                  seed gives the same sequence of draws; without it\n");
+	printf("                  the fading draws are seeded from the clock\n");
 
 	exit(exval);
 }
@@ -1556,8 +1561,14 @@ int main(int argc, char *argv[])
 	char* parse_end_token;
 	bool start_server = false;
 	bool full_dynamic = false;
+	unsigned long long seed;
+	static const struct option long_options[] = {
+		{"seed", required_argument, NULL, 'S'},
+		{NULL, 0, NULL, 0}
+	};
 
-	while ((opt = getopt(argc, argv, "hVc:l:x:sda:")) != -1) {
+	while ((opt = getopt_long(argc, argv, "hVc:l:x:sda:S:",
+				  long_options, NULL)) != -1) {
 		switch (opt) {
 		case 'h':
 			print_help(EXIT_SUCCESS);
@@ -1599,6 +1610,17 @@ int main(int argc, char *argv[])
 			ap_ip = optarg;
 			ctx.op_mode = REMOTE;
 			is_ap = strcmp(ap_ip, "localhost") == 0;
+			break;
+		case 'S':
+			errno = 0;
+			seed = strtoull(optarg, &parse_end_token, 10);
+			if (errno == ERANGE || optarg == parse_end_token ||
+			    *parse_end_token != '\0' || optarg[0] == '-') {
+				printf("wmediumd: Error - Invalid seed: %s\n\n",
+				       optarg);
+				print_help(EXIT_FAILURE);
+			}
+			set_random_seed((uint64_t)seed);
 			break;
 		case '?':
 			printf("wmediumd: Error - No such option: "
